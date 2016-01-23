@@ -7,7 +7,7 @@
 #include "rtc.h"
 #define I2C_RTC_ADDR 0x68
 
-#define DEBUG_RTC
+//#define DEBUG_RTC
 #include <i2c/i2c.h>
 #include <string.h>
 int net_printf(const char* format, ...);
@@ -22,13 +22,13 @@ int net_printf(const char* format, ...);
 /*
  * RTC register addresses
  */
-#define RTC_SEC_REG_ADDR	0x0
-#define RTC_MIN_REG_ADDR	0x1
-#define RTC_HR_REG_ADDR		0x2
-#define RTC_DAY_REG_ADDR	0x3
-#define RTC_DATE_REG_ADDR	0x4
-#define RTC_MON_REG_ADDR	0x5
-#define RTC_YR_REG_ADDR		0x6
+#define RTC_SEC_REG_ADDR	0x1
+#define RTC_MIN_REG_ADDR	0x2
+#define RTC_HR_REG_ADDR		0x3
+#define RTC_DAY_REG_ADDR	0x4
+#define RTC_DATE_REG_ADDR	0x5
+#define RTC_MON_REG_ADDR	0x6
+#define RTC_YR_REG_ADDR		0x7
 #define RTC_CTL_REG_ADDR	0x0e
 #define RTC_STAT_REG_ADDR	0x0f
 
@@ -62,10 +62,12 @@ static unsigned bcd2bin (uint8_t c);
 int rtc_get (struct rtc_time *tmp)
 {
 	int rel = 0;
-	uint8_t sec, min, hour, mday, wday, mon_cent, year, control, status;
+	uint8_t sec, min, hour, mday, wday, mon_cent, year;
 
-	control = rtc_read (RTC_CTL_REG_ADDR);
-	status = rtc_read (RTC_STAT_REG_ADDR);
+    /*
+	 *control = rtc_read (RTC_CTL_REG_ADDR);
+	 *status = rtc_read (RTC_STAT_REG_ADDR);
+     */
 	sec = rtc_read (RTC_SEC_REG_ADDR);
 	min = rtc_read (RTC_MIN_REG_ADDR);
 	hour = rtc_read (RTC_HR_REG_ADDR);
@@ -78,13 +80,13 @@ int rtc_get (struct rtc_time *tmp)
 		"hr: %02x min: %02x sec: %02x control: %02x status: %02x\n",
 		year, mon_cent, mday, wday, hour, min, sec, control, status);
 
-	if (status & RTC_STAT_BIT_OSF) {
-		net_printf("### Warning: RTC oscillator has stopped\n");
-		/* clear the OSF flag */
-		rtc_write (RTC_STAT_REG_ADDR,
-			   rtc_read (RTC_STAT_REG_ADDR) & ~RTC_STAT_BIT_OSF);
-		rel = -1;
-	}
+	//if (status & RTC_STAT_BIT_OSF) {
+	//	net_printf("### Warning: RTC oscillator has stopped\n");
+	//	/* clear the OSF flag */
+	//	rtc_write (RTC_STAT_REG_ADDR,
+	//		   rtc_read (RTC_STAT_REG_ADDR) & ~RTC_STAT_BIT_OSF);
+	//	rel = -1;
+	//}
 
 	tmp->tm_sec  = bcd2bin (sec & 0x7F);
 	tmp->tm_min  = bcd2bin (min & 0x7F);
@@ -96,7 +98,7 @@ int rtc_get (struct rtc_time *tmp)
 	tmp->tm_yday = 0;
 	tmp->tm_isdst= 0;
 
-	DEBUGR ("Get DATE: %4d-%02d-%02d (wday=%d)  TIME: %2d:%02d:%02d\n",
+	net_printf("Get DATE: %4d-%02d-%02d (wday=%d)  TIME: %2d:%02d:%02d\n",
 		tmp->tm_year, tmp->tm_mon, tmp->tm_mday, tmp->tm_wday,
 		tmp->tm_hour, tmp->tm_min, tmp->tm_sec);
 
@@ -111,7 +113,7 @@ void rtc_set (struct rtc_time *tmp)
 {
 	uint8_t century;
 
-	DEBUGR ("Set DATE: %4d-%02d-%02d (wday=%d)  TIME: %2d:%02d:%02d\n",
+	net_printf("Set DATE: %4d-%02d-%02d (wday=%d)  TIME: %2d:%02d:%02d\n",
 		tmp->tm_year, tmp->tm_mon, tmp->tm_mday, tmp->tm_wday,
 		tmp->tm_hour, tmp->tm_min, tmp->tm_sec);
 
@@ -137,14 +139,13 @@ void rtc_set (struct rtc_time *tmp)
  */
 void rtc_reset (void)
 {
-	rtc_write (RTC_CTL_REG_ADDR, RTC_CTL_BIT_RS1 | RTC_CTL_BIT_RS2);
+	//rtc_write (RTC_CTL_REG_ADDR, RTC_CTL_BIT_RS1 | RTC_CTL_BIT_RS2);
 }
 
 
 /*
  * Helper functions
  */
-
 static uint8_t rtc_read (uint8_t reg)
 {
     uint8_t data;
