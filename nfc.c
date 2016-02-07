@@ -1,6 +1,7 @@
 #include <i2c/i2c.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 static uint16_t update_crc(uint8_t ch, uint16_t *lpw_crc)
 {
@@ -24,7 +25,8 @@ uint16_t crc_calc(uint8_t *data, uint8_t len)
         update_crc(ch_block, &w_crc);
     } while (--len);
 
-    *(uint16_t*)data = w_crc;
+    *data = w_crc & 0x00FF;
+    *(data + 1) = w_crc >> 8;
 
     return w_crc;
 }
@@ -32,6 +34,8 @@ uint16_t crc_calc(uint8_t *data, uint8_t len)
 bool nfc_i2c_read(uint8_t *buff, int len)
 {
     int i = 0;
+
+    memset(buff, 0, len);
 
     i2c_start();
     if(!i2c_write(0xAD)) {
