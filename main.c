@@ -22,27 +22,13 @@
 
 #define BUF_SIZE 30
 
-void core(void *pvParameters);
-bool sdk_wifi_station_set_auto_connect(uint8_t);
+struct netconn *nc;
+static xQueueHandle tsqueue;
 
 void configure_wifi_ap(void);
+void core(void *pvParameters);
 void configure_wifi_station(void);
-struct netconn *nc;
-
-int net_printf(const char* format, ...)
-{
-    va_list ap;
-    char msg[1024];
-
-    memset(msg, 0, 1024);
-
-    va_start(ap, format);
-    vsnprintf(msg + strlen(msg), sizeof(msg)-strlen(msg), format, ap);
-    va_end(ap);
-    printf(msg);
-    netconn_write(nc, msg, strlen(msg), NETCONN_COPY);
-    return 0;
-}
+bool sdk_wifi_station_set_auto_connect(uint8_t);
 
 
 //static void net_console(void *pvParameters)
@@ -110,7 +96,37 @@ int net_printf(const char* format, ...)
 //    }
 //}
 
-uint8_t* nfc_tag_isr(void)
+void nfc_tag_format(void)
+{
+    int i;
+    uint8_t buff[30];
+
+    crc_calc(wait_accept, sizeof(wait_accept) - 2);
+    crc_calc(format_ndef, sizeof(format_ndef) - 2);
+
+    nfc_i2c_write(&get_i2c_session, sizeof(get_i2c_session));
+    nfc_i2c_write(select, sizeof(select));
+    nfc_i2c_write(select_ndef, sizeof(select_ndef));
+
+    {
+        //format ndef
+        nfc_i2c_write(format_ndef, sizeof(format_ndef));
+        nfc_i2c_read(buff, 16); { for(i = 0; i < 16; i++) { printf("%02x ", buff[i]); } printf("\n"); }
+        nfc_i2c_write(wait_accept, sizeof(wait_accept));
+
+        vTaskDelay(1 * 100 / portTICK_RATE_MS);
+
+        format_ndef[4] = 0x0a;
+        crc_calc(format_ndef, sizeof(format_ndef) - 2);
+        nfc_i2c_write(format_ndef, sizeof(format_ndef));
+        nfc_i2c_read(buff, 16); { for(i = 0; i < 16; i++) { printf("%02x ", buff[i]); } printf("\n"); }
+        nfc_i2c_write(wait_accept, sizeof(wait_accept));
+        vTaskDelay(1 * 100 / portTICK_RATE_MS);
+    }
+
+    nfc_i2c_write(deselect, sizeof(deselect)); nfc_i2c_read(buff, 10);
+}
+uint8_t* nfc_tag_read(void)
 {
     uint8_t buff[20];
     int nfc_data_len, block_count;
@@ -118,38 +134,31 @@ uint8_t* nfc_tag_isr(void)
     uint8_t *nfc_data = NULL;
     uint8_t *ptr;
 
-    vTaskDelay(3 * 1000 / portTICK_RATE_MS);
-
-    // select I2C
-    // NDEF appl select
-    // NDEF select
-    // read NDEF len
-    // read NDEF
     nfc_i2c_write(&get_i2c_session, sizeof(get_i2c_session));
     nfc_i2c_write(select, sizeof(select));
     nfc_i2c_write(select_ndef, sizeof(select_ndef));
-    nfc_i2c_write(read_ndef_len, sizeof(read_ndef_len));
 
-    // read response
+    nfc_i2c_write(read_ndef_len, sizeof(read_ndef_len));
     nfc_i2c_read(buff, 10);
 
-    //buff[2] == ndef len
-    nfc_data_len = buff[2];
+    //buff[1:2] == ndef len
+    nfc_data_len = (buff[1] << 8) | buff[2];
 
     if(nfc_data_len <= 0)
         return NULL;
     
-    nfc_data = malloc(nfc_data_len + 1);
+    nfc_data = malloc(nfc_data_len);
     if(!nfc_data)
         return NULL;
 
-    memset(nfc_data, 0, nfc_data_len);
+    memset(nfc_data, 0, nfc_data_len + 1);
 
     ptr = nfc_data;
 
     block_count = nfc_data_len / 16;
     remnant = nfc_data_len % 16;
 
+    read_ndef[4] = 0;
     do {
         read_ndef[4] += block_size;
 
@@ -162,56 +171,22 @@ uint8_t* nfc_tag_isr(void)
 
         read_ndef[5] = block_size;
 
-        // Last two bytes is for calculated CRC value
         crc_calc(read_ndef, sizeof(read_ndef) - 2);
         nfc_i2c_write(read_ndef, sizeof(read_ndef));
         nfc_i2c_read(buff, block_size + 5);
 
-        memcpy(nfc_data, buff + 2, block_size);
+        //{ for(i = 0; i < block_size + 5; i++) { printf("%02x ", buff[i]); } printf("\n"); }
+
+        memcpy(nfc_data, buff + 1, block_size);
         nfc_data += block_size;
     } while(block_count-- > 0 || remnant);
 
     nfc_i2c_write(deselect, sizeof(deselect));
 
     // read response
-    nfc_i2c_read(buff, 10);
+    nfc_i2c_read(buff, 3);
 
     return ptr;
-}
-
-void nfc_write(void)
-{
-    uint8_t buff[20];
-
-    uint8_t data[] = {
-        0x02, 0x00, 0xD6, 0x00, 0x00, 0x08, 
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00
-    };
-
-    int i;
-
-    nfc_i2c_write(&get_i2c_session, sizeof(get_i2c_session));
-    nfc_i2c_write(select, sizeof(select));
-
-    crc_calc(select_ndef, sizeof(select_ndef) - 2);
-    nfc_i2c_write(select_ndef, sizeof(select_ndef));
-
-    crc_calc(data, sizeof(data) - 2);
-    nfc_i2c_write(data, sizeof(data));
-
-    // read response
-    nfc_i2c_read(buff, 10);
-
-    for(i = 0; i < 10; i++) {
-        printf("%02x ", buff[i]);
-    }
-    printf("\n");
-
-    nfc_i2c_write(deselect, sizeof(deselect));
-
-    // read response
-    nfc_i2c_read(buff, 10);
 }
 
 void nfc_gpio_cfg(void)
@@ -249,92 +224,66 @@ void nfc_gpio_cfg(void)
     nfc_i2c_write(deselect, sizeof(deselect));
 
     // read response
-    nfc_i2c_read(buff, 10);
-}
-
-void tsens(void *pvParameters)
-{
-    int i;
-    int len = 0;
-
-    i2c_init(5, 4);
-
-    vTaskDelay(5 * 1000 / portTICK_RATE_MS);
-
-    for(i = 0; i < 255; i++) {
-        i2c_start();
-        if(i2c_write(i)) {
-            printf("ack %02x\n", i);
-        }
-        i2c_stop();
-    }
-    vTaskDelay(100000 * 1000 / portTICK_RATE_MS);
-    
-    
-    i2c_start();
-    if(!i2c_write(0x90)) {
-        printf("NO ACK during addr write\n");
-    }
-
-    if(!i2c_write(0)) {
-        printf("NO ACK at write\n");
-    }
-
-    //i2c_stop();
-
-    ///
-    i2c_start();
-    if(!i2c_write(0x91))
-        printf("NO ACK at write\n");
-
-    len = 2;
-    printf("TEMP - ");
-    while(len--)
-        printf("%02x ",  i2c_read(0));
-
-    printf("DONE\n");
-
-    i2c_stop();
-
-    vTaskDelay(100000 * 1000 / portTICK_RATE_MS);
+    nfc_i2c_read(buff, 3);
 }
 
 void gpio02_interrupt_handler(void) 
 { 
-    printf("Interrupt RXed 02!!!!\n"); 
-    //printf("Reading from NFC ...[%s]\n", nfc_tag_isr());
+    uint32_t now = xTaskGetTickCountFromISR();
+    xQueueSendToBackFromISR(tsqueue, &now, NULL);
 }
 
-void gpio_intr(void *pvParameters)
+void print_nfc_tag()
 {
-    vTaskDelay(5 * 1000 / portTICK_RATE_MS);
-    printf("NFC GPIO CFG\n");
-    nfc_gpio_cfg();
-    //nfc_write();
-    vTaskDelay(100000 * 1000 / portTICK_RATE_MS);
+    uint8_t *ptr;
+    ptr = nfc_tag_read();
+    if(ptr) {
+        printf("NFC DATA [%s]\n", ptr + 9);
+        free(ptr);
+    }
+
+    return;
 }
 
+void nfc_task(void *pvParameters)
+{
+    nfc_tag_format();
+    printf("Waiting for NFC interrupt on gpio 2...\n");
+    xQueueHandle *tsqueue = (xQueueHandle *)pvParameters;
+    gpio_set_interrupt(2, GPIO_INTTYPE_EDGE_NEG);
+
+    //nfc_gpio_cfg();
+    for(;;) {
+        uint32_t irq_ts;
+        xQueueReceive(*tsqueue, &irq_ts, portMAX_DELAY);
+        irq_ts *= portTICK_RATE_MS;
+
+        printf("INT RXed at %d: Waiting for RF to write data...", irq_ts);
+        while(!gpio_read(2));
+        printf("DONE\n");
+        vTaskDelay(5 * 100 / portTICK_RATE_MS);
+        print_nfc_tag();
+    }
+}
 
 void user_init(void)
 {
+    tsqueue = xQueueCreate(2, sizeof(uint32_t));
     sdk_uart_div_modify(0, UART_CLK_FREQ / 115200);
-
     i2c_init(5, 4);
 
-    gpio_enable(GPIO_CONFIG, GPIO_INPUT);
-    if(!gpio_read(GPIO_CONFIG)) {
-        printf("Entering configuration mode...\n");
-        configure_wifi_ap();
-    } else {
-        printf("Entering operational mode...\n");
-        configure_wifi_station();
-        printf("configuring GPIO02 as interrupt\n");
-        gpio_set_interrupt(2, GPIO_INTTYPE_EDGE_NEG);
-
-        xTaskCreate(gpio_intr, (signed char *)"gpio_intr", 2048, NULL, 2, NULL);
+  //  gpio_enable(GPIO_CONFIG, GPIO_INPUT);
+  //  if(!gpio_read(GPIO_CONFIG)) {
+  //      printf("Entering configuration mode...\n");
+  //      configure_wifi_ap();
+  //  } else {
+  //      printf("Entering operational mode...\n");
+  //      configure_wifi_station();
+    sdk_wifi_station_set_auto_connect(0);
+    xTaskCreate(nfc_task, (signed char *)"gpio_intr", 2048, &tsqueue, 2, NULL);
         //xTaskCreate(tsens, (signed char *)"tsens", 2048, NULL, 2, NULL);
         //xTaskCreate(nfc_tag, (signed char *)"nfc_tag", 2048, NULL, 2, NULL);
         //xTaskCreate(net_console, (signed char *)"net_console", 2048, NULL, 2, NULL);
         //xTaskCreate(core, (signed char *)"core", 256, NULL, 2, NULL);
-    }
+  //  }
 }
