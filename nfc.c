@@ -2,6 +2,21 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <FreeRTOS.h>
+#include <task.h>
+#include <queue.h>
+
+#include "nfc.h"
+
+#define BUF_SIZE 30
+
+xQueueHandle nfcq;
+
+void gpio02_interrupt_handler(void) 
+{ 
+    uint8_t tmp = 1;
+    xQueueSendToBackFromISR(nfcq, &tmp, NULL);
+}
 
 static uint16_t update_crc(uint8_t ch, uint16_t *lpw_crc)
 {
@@ -74,4 +89,169 @@ bool nfc_i2c_write(uint8_t *buff, int len)
     i2c_stop();
 
     return true;
+}
+
+uint8_t* nfc_tag_read(void)
+{
+    uint8_t buff[20];
+    int nfc_data_len, block_count;
+    int remnant, block_size = 0;
+    uint8_t *nfc_data = NULL;
+    uint8_t *ptr;
+
+    nfc_i2c_write(&get_i2c_session, sizeof(get_i2c_session));
+    nfc_i2c_write(select, sizeof(select));
+    nfc_i2c_write(select_ndef, sizeof(select_ndef));
+
+    nfc_i2c_write(read_ndef_len, sizeof(read_ndef_len));
+    nfc_i2c_read(buff, 10);
+
+    //buff[1:2] == ndef len
+    nfc_data_len = (buff[1] << 8) | buff[2];
+
+    if(nfc_data_len <= 0)
+        return NULL;
+    
+    nfc_data = malloc(nfc_data_len);
+    if(!nfc_data)
+        return NULL;
+
+    memset(nfc_data, 0, nfc_data_len + 1);
+
+    ptr = nfc_data;
+
+    block_count = nfc_data_len / 16;
+    remnant = nfc_data_len % 16;
+
+    read_ndef[4] = 0;
+    do {
+        read_ndef[4] += block_size;
+
+        if(block_count > 0) {
+            block_size = 16;
+        } else {
+            block_size = remnant + 2;
+            remnant = 0;
+        }
+
+        read_ndef[5] = block_size;
+
+        crc_calc(read_ndef, sizeof(read_ndef) - 2);
+        nfc_i2c_write(read_ndef, sizeof(read_ndef));
+        nfc_i2c_read(buff, block_size + 7);
+
+        //{ int i; for(i = 0; i < block_size + 7; i++) { printf("%02x ", buff[i]); } printf("\n"); }
+
+        memcpy(nfc_data, buff + 1, block_size);
+        nfc_data += block_size;
+    } while(block_count-- > 0 || remnant);
+
+    nfc_i2c_write(deselect, sizeof(deselect));
+
+    // read response
+    nfc_i2c_read(buff, 3);
+
+    return ptr;
+}
+
+void nfc_tag_format(void)
+{
+    int i;
+    uint8_t buff[30];
+
+    crc_calc(wait_accept, sizeof(wait_accept) - 2);
+    crc_calc(format_ndef, sizeof(format_ndef) - 2);
+
+    nfc_i2c_write(&get_i2c_session, sizeof(get_i2c_session));
+    nfc_i2c_write(select, sizeof(select));
+    nfc_i2c_write(select_ndef, sizeof(select_ndef));
+
+    {
+        //format ndef
+        nfc_i2c_write(format_ndef, sizeof(format_ndef));
+        nfc_i2c_read(buff, 16); { for(i = 0; i < 16; i++) { printf("%02x ", buff[i]); } printf("\n"); }
+        nfc_i2c_write(wait_accept, sizeof(wait_accept));
+
+        vTaskDelay(1 * 100 / portTICK_RATE_MS);
+
+        format_ndef[4] = 0x0a;
+        crc_calc(format_ndef, sizeof(format_ndef) - 2);
+        nfc_i2c_write(format_ndef, sizeof(format_ndef));
+        nfc_i2c_read(buff, 16); { for(i = 0; i < 16; i++) { printf("%02x ", buff[i]); } printf("\n"); }
+        nfc_i2c_write(wait_accept, sizeof(wait_accept));
+        vTaskDelay(1 * 100 / portTICK_RATE_MS);
+    }
+
+    nfc_i2c_write(deselect, sizeof(deselect)); nfc_i2c_read(buff, 10);
+}
+
+void print_nfc_tag()
+{
+    uint8_t *ptr;
+    ptr = nfc_tag_read();
+    if(ptr) {
+        printf("NFC DATA [%s]\n", ptr + 9);
+        free(ptr);
+    }
+
+    return;
+}
+
+void nfc_gpio_cfg(void)
+{
+    uint8_t buff[BUF_SIZE];
+
+    crc_calc(verify, sizeof(verify) - 2);
+    crc_calc(select_system, sizeof(select_system) - 2);
+    crc_calc(read_gpio_cfg, sizeof(read_gpio_cfg) - 2);
+    crc_calc(write_gpio_cfg, sizeof(write_gpio_cfg) - 2);
+
+    nfc_i2c_write(&get_i2c_session, sizeof(get_i2c_session));
+    nfc_i2c_write(select, sizeof(select));
+    nfc_i2c_write(select_system, sizeof(select_system));
+    nfc_i2c_write(verify, sizeof(verify));
+
+    //printf("Verify response:\n");
+    //// read response
+    //nfc_i2c_read(buff, 5);
+
+    //for(i = 0; i < 5; i++) {
+    //    printf("%02x ", buff[i]);
+    //}
+    //printf("\n");
+    //printf("Verify DONE\n");
+
+    nfc_i2c_write(write_gpio_cfg, sizeof(write_gpio_cfg));
+    nfc_i2c_write(read_gpio_cfg, sizeof(read_gpio_cfg));
+
+    // read response
+    nfc_i2c_read(buff, 5);
+
+    printf("GPIO config 0x%x\n", buff[1]);
+
+    nfc_i2c_write(deselect, sizeof(deselect));
+
+    // read response
+    nfc_i2c_read(buff, 3);
+}
+
+void nfc_task(void *pvParameters)
+{
+    nfc_tag_format();
+    printf("Waiting for NFC interrupt on gpio 2...\n");
+    xQueueHandle *nfcq = (xQueueHandle *)pvParameters;
+    gpio_set_interrupt(2, GPIO_INTTYPE_EDGE_NEG);
+
+    //nfc_gpio_cfg();
+    for(;;) {
+        uint8_t irq_ts;
+        xQueueReceive(*nfcq, &irq_ts, portMAX_DELAY);
+        irq_ts *= portTICK_RATE_MS;
+
+        printf("INT RXed at %d: Waiting for RF to write data...", irq_ts);
+        while(!gpio_read(2));
+        printf("DONE\n");
+        vTaskDelay(1 * 1000 / portTICK_RATE_MS);
+        print_nfc_tag();
+    }
 }
