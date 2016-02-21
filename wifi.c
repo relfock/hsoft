@@ -38,21 +38,45 @@ void configure_wifi_ap(void)
     return;
 }
 
+uint8_t* nfc_tag_read(void);
+
+int get_prop(char *str, char *prop, char *cfg)
+{
+    char *start = NULL, *end = NULL;
+
+    start = strstr(str, prop);
+    if(!start) return -1;
+
+    start += strlen(prop);
+
+    end = index(start + strlen("ssid="), ':');
+    if(!end) return -1;
+
+    strncpy((char*)cfg, start, end - start);
+
+    return 0;
+}
+
 void configure_wifi_station(void)
 {
-    struct sdk_station_config st_config = {
-        .ssid = "relfock-main",
-        .password = "tpandrew",
-    };
+    char *ucfg = NULL;
+    struct sdk_station_config st_config;
 
+    memset(st_config.ssid, 0, 32);
+    memset(st_config.password, 0, 64);
+
+    ucfg = (char*)nfc_tag_read();
+    if(!ucfg) return;
+
+    get_prop(ucfg + 9, "ssid=", (char*)st_config.ssid);
+    get_prop(ucfg + 9, "pwd=", (char*)st_config.password);
+
+    printf("Configuring WIFI: SSID[%s] PASSWD[%s]\n", st_config.ssid, st_config.password);
+    
     sdk_wifi_set_opmode(STATION_MODE);
     sdk_wifi_station_set_config(&st_config);
 
-    if(0 == sdk_wifi_station_get_auto_connect()) {
-        printf("Wifi auto connect is disabled: Enabling...\n");
-        if(!sdk_wifi_station_set_auto_connect(1))
-            printf("sdk_wifi_station_set_auto_connect: FAILED\n");
-    }
+    free(ucfg);
 
     return;
 }

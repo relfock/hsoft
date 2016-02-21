@@ -11,8 +11,10 @@
 #define BUF_SIZE 30
 
 xQueueHandle nfcq;
+void configure_wifi_station(void);
+void sdk_system_restart(void);
 
-void gpio02_interrupt_handler(void) 
+void gpio00_interrupt_handler(void) 
 { 
     uint8_t tmp = 1;
     xQueueSendToBackFromISR(nfcq, &tmp, NULL);
@@ -112,7 +114,7 @@ uint8_t* nfc_tag_read(void)
     if(nfc_data_len <= 0)
         return NULL;
     
-    nfc_data = malloc(nfc_data_len);
+    nfc_data = malloc(nfc_data_len + 1);
     if(!nfc_data)
         return NULL;
 
@@ -202,24 +204,19 @@ void nfc_gpio_cfg(void)
     uint8_t buff[BUF_SIZE];
 
     crc_calc(verify, sizeof(verify) - 2);
+    crc_calc(select, sizeof(select) - 2);
+    crc_calc(select_ndef, sizeof(select_ndef) - 2);
     crc_calc(select_system, sizeof(select_system) - 2);
     crc_calc(read_gpio_cfg, sizeof(read_gpio_cfg) - 2);
     crc_calc(write_gpio_cfg, sizeof(write_gpio_cfg) - 2);
 
     nfc_i2c_write(&get_i2c_session, sizeof(get_i2c_session));
     nfc_i2c_write(select, sizeof(select));
+    nfc_i2c_write(select_ndef, sizeof(select_ndef));
     nfc_i2c_write(select_system, sizeof(select_system));
     nfc_i2c_write(verify, sizeof(verify));
 
-    //printf("Verify response:\n");
-    //// read response
-    //nfc_i2c_read(buff, 5);
-
-    //for(i = 0; i < 5; i++) {
-    //    printf("%02x ", buff[i]);
-    //}
-    //printf("\n");
-    //printf("Verify DONE\n");
+    //nfc_i2c_read(buff, 16); { int i; for(i = 0; i < 16; i++) { printf("%02x ", buff[i]); } printf("\n"); }
 
     nfc_i2c_write(write_gpio_cfg, sizeof(write_gpio_cfg));
     nfc_i2c_write(read_gpio_cfg, sizeof(read_gpio_cfg));
@@ -227,7 +224,7 @@ void nfc_gpio_cfg(void)
     // read response
     nfc_i2c_read(buff, 5);
 
-    printf("GPIO config 0x%x\n", buff[1]);
+    printf("NFC TAG GPIO config 0x%x\n", buff[1]);
 
     nfc_i2c_write(deselect, sizeof(deselect));
 
@@ -237,21 +234,26 @@ void nfc_gpio_cfg(void)
 
 void nfc_task(void *pvParameters)
 {
-    nfc_tag_format();
-    printf("Waiting for NFC interrupt on gpio 2...\n");
     xQueueHandle *nfcq = (xQueueHandle *)pvParameters;
-    gpio_set_interrupt(2, GPIO_INTTYPE_EDGE_NEG);
 
-    //nfc_gpio_cfg();
+    vTaskDelay(2 * 1000 / portTICK_RATE_MS);
+
+    printf("Waiting for NFC interrupt on gpio 0...\n");
+    gpio_set_interrupt(0, GPIO_INTTYPE_EDGE_NEG);
+
+    //nfc_tag_format();
+    nfc_gpio_cfg();
+
     for(;;) {
         uint8_t irq_ts;
         xQueueReceive(*nfcq, &irq_ts, portMAX_DELAY);
         irq_ts *= portTICK_RATE_MS;
 
-        printf("INT RXed at %d: Waiting for RF to write data...", irq_ts);
-        while(!gpio_read(2));
+        printf("INT RXed at %d: Waiting for RF to write the data...", irq_ts);
+        while(!gpio_read(0));
         printf("DONE\n");
         vTaskDelay(1 * 1000 / portTICK_RATE_MS);
-        print_nfc_tag();
+        configure_wifi_station();
+        sdk_system_restart();
     }
 }

@@ -22,7 +22,6 @@
 void configure_wifi_ap(void);
 void core(void *pvParameters);
 void nfc_task(void *pvParameters);
-void configure_wifi_station(void);
 bool sdk_wifi_station_set_auto_connect(uint8_t);
 
 extern xQueueHandle nfcq;
@@ -33,15 +32,17 @@ void user_init(void)
     sdk_uart_div_modify(0, UART_CLK_FREQ / 115200);
     i2c_init(5, 4);
 
-  //  gpio_enable(GPIO_CONFIG, GPIO_INPUT);
-  //  if(!gpio_read(GPIO_CONFIG)) {
-  //      printf("Entering configuration mode...\n");
-  //      configure_wifi_ap();
-  //  } else {
-  //      printf("Entering operational mode...\n");
-  //      configure_wifi_station();
-    sdk_wifi_station_set_auto_connect(0);
+    if(!sdk_wifi_station_set_auto_connect(1))
+        printf("sdk_wifi_station_set_auto_connect: FAILED\n");
+
+    //  gpio_enable(GPIO_CONFIG, GPIO_INPUT);
+    //  if(!gpio_read(GPIO_CONFIG)) {
+    //      printf("Entering configuration mode...\n");
+    //      configure_wifi_ap();
+    //  } else {
+    //      printf("Entering operational mode...\n");
+    //sdk_wifi_station_set_auto_connect(0);
     xTaskCreate(nfc_task, (signed char *)"nfc_task", 2048, &nfcq, 2, NULL);
-        //xTaskCreate(core, (signed char *)"core", 256, NULL, 2, NULL);
-  //  }
+    //xTaskCreate(core, (signed char *)"core", 256, NULL, 2, NULL);
+    //  }
 }
