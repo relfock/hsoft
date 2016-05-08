@@ -23,6 +23,7 @@ void configure_wifi_ap(void);
 void core(void *pvParameters);
 void nfc_task(void *pvParameters);
 bool sdk_wifi_station_set_auto_connect(uint8_t);
+void configure_wifi_station(void);
 
 extern xQueueHandle nfcq;
 
@@ -31,6 +32,8 @@ void user_init(void)
     nfcq = xQueueCreate(2, sizeof(uint8_t));
     sdk_uart_div_modify(0, UART_CLK_FREQ / 115200);
     i2c_init(5, 4);
+
+    configure_wifi_station();
 
     if(!sdk_wifi_station_set_auto_connect(1))
         printf("sdk_wifi_station_set_auto_connect: FAILED\n");

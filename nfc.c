@@ -241,7 +241,6 @@ void nfc_task(void *pvParameters)
     printf("Waiting for NFC interrupt on gpio 0...\n");
     gpio_set_interrupt(0, GPIO_INTTYPE_EDGE_NEG);
 
-    //nfc_tag_format();
     nfc_gpio_cfg();
 
     for(;;) {
@@ -252,8 +251,10 @@ void nfc_task(void *pvParameters)
         printf("INT RXed at %d: Waiting for RF to write the data...", irq_ts);
         while(!gpio_read(0));
         printf("DONE\n");
-        vTaskDelay(1 * 1000 / portTICK_RATE_MS);
-        configure_wifi_station();
+
+        vTaskDelay(3 * 1000 / portTICK_RATE_MS);
+
+        // restart the system to update the configuration from NFC
         sdk_system_restart();
     }
 }
