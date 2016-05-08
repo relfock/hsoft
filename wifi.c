@@ -93,7 +93,7 @@ void configure_wifi_station(void)
         return;
     }
 
-    printf("NFC INFO: [%s]\n", ucfg + 9);
+    printf("\nNFC INFO: [%s]\n", ucfg + 9);
     printf("Configuring WIFI: SSID[%s] PASSWD[%s]\n", st_config.ssid, st_config.password);
 
     if(get_prop(ucfg + 9, "ip=", ip_str) == 0 &&

@@ -46,6 +46,6 @@ void user_init(void)
     //      printf("Entering operational mode...\n");
     //sdk_wifi_station_set_auto_connect(0);
     xTaskCreate(nfc_task, (signed char *)"nfc_task", 2048, &nfcq, 2, NULL);
-    //xTaskCreate(core, (signed char *)"core", 256, NULL, 2, NULL);
+    xTaskCreate(core, (signed char *)"core", 2048, NULL, 2, NULL);
     //  }
 }

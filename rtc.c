@@ -10,10 +10,10 @@
 //#define DEBUG_RTC
 #include <i2c/i2c.h>
 #include <string.h>
-int net_printf(const char* format, ...);
+#include <stdio.h>
 
 #ifdef DEBUG_RTC
-#define DEBUGR(fmt,args...) net_printf(fmt ,##args)
+#define DEBUGR(fmt,args...) printf(fmt ,##args)
 #else
 #define DEBUGR(fmt,args...)
 #endif
@@ -98,7 +98,7 @@ int rtc_get (struct rtc_time *tmp)
 	tmp->tm_yday = 0;
 	tmp->tm_isdst= 0;
 
-	net_printf("Get DATE: %4d-%02d-%02d (wday=%d)  TIME: %2d:%02d:%02d\n",
+	DEBUGR("Get DATE: %4d-%02d-%02d (wday=%d)  TIME: %2d:%02d:%02d\n",
 		tmp->tm_year, tmp->tm_mon, tmp->tm_mday, tmp->tm_wday,
 		tmp->tm_hour, tmp->tm_min, tmp->tm_sec);
 
@@ -113,7 +113,7 @@ void rtc_set (struct rtc_time *tmp)
 {
 	uint8_t century;
 
-	net_printf("Set DATE: %4d-%02d-%02d (wday=%d)  TIME: %2d:%02d:%02d\n",
+	DEBUGR("Set DATE: %4d-%02d-%02d (wday=%d)  TIME: %2d:%02d:%02d\n",
 		tmp->tm_year, tmp->tm_mon, tmp->tm_mday, tmp->tm_wday,
 		tmp->tm_hour, tmp->tm_min, tmp->tm_sec);
 
