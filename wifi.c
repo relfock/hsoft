@@ -9,6 +9,8 @@
 #define AP_PASSWD "ad123456"
 
 void nfc_tag_format(void);
+extern char server_port[16];
+extern char server_ip[512];
 
 void configure_wifi_ap(void)
 {
@@ -95,6 +97,13 @@ void configure_wifi_station(void)
 
     printf("\nNFC INFO: [%s]\n", ucfg + 9);
     printf("Configuring WIFI: SSID[%s] PASSWD[%s]\n", st_config.ssid, st_config.password);
+
+    // Get server cfg
+    memset(server_ip, 0, sizeof(server_ip));
+    memset(server_port, 0, sizeof(server_port));
+
+    get_prop(ucfg + 9, "srv=", server_ip);
+    get_prop(ucfg + 9, "port=", server_port);
 
     if(get_prop(ucfg + 9, "ip=", ip_str) == 0 &&
             get_prop(ucfg + 9, "mask=", mask_str) == 0 &&

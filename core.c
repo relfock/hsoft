@@ -12,9 +12,10 @@
 #include "lwip/sockets.h"
 #include <i2c/i2c.h>
  
-#define SERVER "192.168.1.13"
 #define BUFLEN 512  //Max length of buffer
-#define PORT 8888   //The port on which to send data
+
+char server_port[16];
+char server_ip[512] = { 0 };
 
 void sdk_os_delay_us(uint16_t us);
 
@@ -23,6 +24,11 @@ void core(void *pvParameters)
     char message[BUFLEN];
     struct sockaddr_in si_other;
     int s, slen = sizeof(si_other);
+
+    if(server_ip[0] == 0 || server_port[0] == 0) {
+        printf("ERROR: No server specified\n");
+        vTaskDelay(3000 * 1000 / portTICK_RATE_MS);
+    }
 
     //Wait for WIFI connectivity
     vTaskDelay(5 * 1000 / portTICK_RATE_MS);
@@ -34,9 +40,9 @@ void core(void *pvParameters)
  
     memset((char *) &si_other, 0, sizeof(si_other));
     si_other.sin_family = AF_INET;
-    si_other.sin_port = htons(PORT);
+    si_other.sin_port = htons(atoi(server_port));
      
-    if (inet_aton(SERVER , &si_other.sin_addr) == 0) {
+    if (inet_aton(server_ip , &si_other.sin_addr) == 0) {
         printf("inet_aton() failed\n");
         vTaskDelay(3000 * 1000 / portTICK_RATE_MS);
     }
